@@ -70,9 +70,11 @@ public class QuotationComparisonService {
                         return merged;
                     })
                     .map(content -> {
+                        // Prefer specific extractors (PDF, Excel) over the plain-text fallback
                         String text = extractors.stream()
-                                .filter(ex -> ex.supports(contentType))
+                                .filter(ex -> ex.supports(contentType) && !ex.getClass().getSimpleName().equals("PlainTextExtractor"))
                                 .findFirst()
+                                .or(() -> extractors.stream().filter(ex -> ex.supports(contentType)).findFirst())
                                 .map(ex -> ex.extractText(content))
                                 .orElse("");
                         return new String[]{ filename, contentType, text };

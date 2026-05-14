@@ -23,17 +23,15 @@ public class ExtractItemsAgentTool implements AgentTool {
 
     @Override
     public String description() {
-        return "Extract structured line items (supplier name, item name, quantity, unit price) from raw document text. Call this first with the full combined document text.";
+        return "Extract structured line items (supplier name, item name, quantity, unit price) from the uploaded supplier quotation documents. Call this first — no parameters needed, the document text is injected automatically.";
     }
 
     @Override
     public Map<String, Object> parametersSchema() {
         return Map.of(
                 "type", "object",
-                "properties", Map.of(
-                        "text", Map.of("type", "string", "description", "Raw text from supplier quotation documents")
-                ),
-                "required", List.of("text")
+                "properties", Map.of(),
+                "required", List.of()
         );
     }
 

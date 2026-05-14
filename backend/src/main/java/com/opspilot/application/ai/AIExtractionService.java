@@ -34,6 +34,9 @@ public class AIExtractionService {
                 Each row must have a supplierName. If two suppliers quote the same item, emit two separate rows with different supplierName values.
                 Infer reasonable rows even if formatting is poor; omit empty rows.""";
 
+        log.info("Extraction input text length: {} chars, preview: {}", truncated.length(),
+                truncated.substring(0, Math.min(200, truncated.length())).replace("\n", " "));
+
         Optional<String> json = openRouterClient.completeJsonObject(system, "Source:\n\n" + truncated);
         if (json.isPresent()) {
             try {
@@ -44,12 +47,17 @@ public class AIExtractionService {
                     for (JsonNode n : items) {
                         out.add(objectMapper.convertValue(n, new TypeReference<>() {}));
                     }
+                    log.info("Extracted {} items, first: {}", out.size(), out.isEmpty() ? "none" : out.get(0));
                     return out;
                 }
+                log.warn("Extraction JSON had no items array, raw response: {}", json.get().substring(0, Math.min(300, json.get().length())));
             } catch (Exception e) {
                 log.warn("Failed to parse extraction JSON from model: {}", e.toString());
             }
+        } else {
+            log.warn("OpenRouter returned empty for extraction call");
         }
+        log.warn("Falling back to stub items");
         return stubItems();
     }
 

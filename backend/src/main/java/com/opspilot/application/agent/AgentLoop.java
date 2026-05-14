@@ -33,14 +33,14 @@ public class AgentLoop {
             Your job is to analyze supplier quotations and produce a structured recommendation report.
 
             You have access to the following tools. Use them in this exact order:
-            1. extract_items — extract structured line items from the raw document text
-            2. detect_anomalies — identify price deviations and missing data
-            3. compare_quotations — AI-powered supplier ranking by total cost
-            4. generate_report — produce the final markdown report; returns markdown, best_supplier, confidence, anomaly_count as flat fields
+            1. extract_items — extracts line items from the uploaded documents (no parameters needed — call it with empty args {})
+            2. detect_anomalies — identify price deviations and missing data; pass the items array from extract_items
+            3. compare_quotations — AI-powered supplier ranking by total cost; pass the items array from extract_items
+            4. generate_report — produce the final markdown report; pass comparison and anomalies; returns markdown, best_supplier, confidence, anomaly_count as flat fields
             5. submit_report — pass the markdown, best_supplier, confidence, anomaly_count from generate_report directly into this tool
 
             Rules:
-            - Always call extract_items first with the full document text
+            - Always call extract_items first with no arguments ({})
             - When calling submit_report, use the exact field values returned by generate_report: markdown → markdown, best_supplier → best_supplier, confidence → confidence, anomaly_count → anomaly_count
             - Always call submit_report when analysis is complete — this is required to finish the workflow
             - Be thorough but efficient — do not repeat tool calls unnecessarily
@@ -66,6 +66,11 @@ public class AgentLoop {
                 "Document text:\n" + extractedText));
 
         List<Map<String, Object>> toolDefs = buildToolDefinitions();
+
+        // Cache tool outputs so we can inject them when the LLM omits required data
+        List<Object> cachedItems = null;
+        Map<String, Object> cachedComparison = null;
+        List<Object> cachedAnomalies = null;
 
         for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
             log.info("Agent iteration {}/{}", iteration + 1, MAX_ITERATIONS);
@@ -93,6 +98,44 @@ public class AgentLoop {
                     log.info("Agent calling tool '{}' (id={})", toolName, toolCallId);
 
                     Map<String, Object> args = parseArgs(argsJson);
+
+                    // Inject cached outputs — LLMs don't reliably pass large arrays between tool calls.
+                    switch (toolName) {
+                        case "extract_items" -> {
+                            Map<String, Object> injected = new java.util.HashMap<>(args);
+                            injected.put("text", extractedText);
+                            args = injected;
+                        }
+                        case "detect_anomalies" -> {
+                            if (cachedItems != null && isNullOrEmpty(args.get("items"))) {
+                                Map<String, Object> injected = new java.util.HashMap<>(args);
+                                injected.put("items", cachedItems);
+                                args = injected;
+                                log.info("Injected {} cached items into detect_anomalies", cachedItems.size());
+                            }
+                        }
+                        case "compare_quotations" -> {
+                            if (cachedItems != null && isNullOrEmpty(args.get("items"))) {
+                                Map<String, Object> injected = new java.util.HashMap<>(args);
+                                injected.put("items", cachedItems);
+                                args = injected;
+                                log.info("Injected {} cached items into compare_quotations", cachedItems.size());
+                            }
+                        }
+                        case "generate_report" -> {
+                            Map<String, Object> injected = new java.util.HashMap<>(args);
+                            if (cachedComparison != null && isNullOrEmpty(args.get("comparison"))) {
+                                injected.put("comparison", cachedComparison);
+                                log.info("Injected cached comparison into generate_report");
+                            }
+                            if (cachedAnomalies != null && isNullOrEmpty(args.get("anomalies"))) {
+                                injected.put("anomalies", cachedAnomalies);
+                                log.info("Injected cached anomalies into generate_report");
+                            }
+                            args = injected;
+                        }
+                    }
+
                     AgentTool tool = toolsByName.get(toolName);
 
                     if (tool == null) {
@@ -103,6 +146,24 @@ public class AgentLoop {
 
                     Map<String, Object> result = tool.execute(args);
                     log.info("Tool '{}' completed, result keys: {}", toolName, result.keySet());
+
+                    // Cache outputs for downstream injection
+                    switch (toolName) {
+                        case "extract_items" -> {
+                            Object items = result.get("items");
+                            if (items instanceof List<?> list && !list.isEmpty()) {
+                                cachedItems = (List<Object>) list;
+                            }
+                        }
+                        case "compare_quotations" -> {
+                            Object comp = result.get("comparison");
+                            if (comp instanceof Map<?,?> m) cachedComparison = (Map<String, Object>) m;
+                        }
+                        case "detect_anomalies" -> {
+                            Object anom = result.get("anomalies");
+                            if (anom instanceof List<?> l) cachedAnomalies = (List<Object>) l;
+                        }
+                    }
 
                     // Terminal condition: agent submitted the report
                     if (SubmitReportAgentTool.NAME.equals(toolName)) {
@@ -174,6 +235,13 @@ public class AgentLoop {
         } catch (Exception e) {
             return Map.of();
         }
+    }
+
+    private boolean isNullOrEmpty(Object value) {
+        if (value == null) return true;
+        if (value instanceof List<?> l) return l.isEmpty();
+        if (value instanceof Map<?,?> m) return m.isEmpty();
+        return false;
     }
 
     @SuppressWarnings("unchecked")

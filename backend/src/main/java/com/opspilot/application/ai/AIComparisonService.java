@@ -43,8 +43,12 @@ public class AIComparisonService {
             user = parsedItems.toString();
         }
 
+        log.info("Comparison input: {} items, sample: {}", parsedItems.size(),
+                parsedItems.isEmpty() ? "none" : parsedItems.get(0));
+
         Optional<String> json = openRouterClient.completeJsonObject(system, user);
         if (json.isPresent()) {
+            log.info("Comparison LLM response (first 500 chars): {}", json.get().substring(0, Math.min(500, json.get().length())));
             try {
                 JsonNode root = objectMapper.readTree(json.get());
                 if (root.hasNonNull("bestSupplier") && root.has("confidence")) {
