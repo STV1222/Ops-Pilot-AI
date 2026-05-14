@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { authFetch } from "../../../../lib/api";
 
 export default function ReportPage() {
@@ -37,7 +38,7 @@ export default function ReportPage() {
         </div>
       )}
       <div className="prose prose-invert prose-table:w-full max-w-none bg-zinc-900 border border-zinc-800 rounded p-6">
-        <ReactMarkdown>{report?.markdown || "No report available."}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{report?.markdown || "No report available."}</ReactMarkdown>
       </div>
     </main>
   );

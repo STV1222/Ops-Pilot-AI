@@ -32,15 +32,16 @@ public class AgentLoop {
             You are an AI procurement analyst for an SME operations platform.
             Your job is to analyze supplier quotations and produce a structured recommendation report.
 
-            You have access to the following tools. Use them in this logical order:
+            You have access to the following tools. Use them in this exact order:
             1. extract_items — extract structured line items from the raw document text
             2. detect_anomalies — identify price deviations and missing data
             3. compare_quotations — AI-powered supplier ranking by total cost
-            4. generate_report — produce the final markdown report
-            5. submit_report — submit the completed report for manager approval (ALWAYS call this last)
+            4. generate_report — produce the final markdown report; returns markdown, best_supplier, confidence, anomaly_count as flat fields
+            5. submit_report — pass the markdown, best_supplier, confidence, anomaly_count from generate_report directly into this tool
 
             Rules:
             - Always call extract_items first with the full document text
+            - When calling submit_report, use the exact field values returned by generate_report: markdown → markdown, best_supplier → best_supplier, confidence → confidence, anomaly_count → anomaly_count
             - Always call submit_report when analysis is complete — this is required to finish the workflow
             - Be thorough but efficient — do not repeat tool calls unnecessarily
             - If a tool returns an error, note it and continue with available data
@@ -180,6 +181,7 @@ public class AgentLoop {
         String markdown = (String) submitArgs.getOrDefault("markdown", "");
         String bestSupplier = (String) submitArgs.getOrDefault("best_supplier", "Unknown");
         double confidence = toDouble(submitArgs.getOrDefault("confidence", 0.8));
+        if (confidence > 1.0) confidence = confidence / 100.0;
         int anomalyCount = toInt(submitArgs.getOrDefault("anomaly_count", 0));
 
         Map<String, Object> summary = Map.of(

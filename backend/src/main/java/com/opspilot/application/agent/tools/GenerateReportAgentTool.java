@@ -21,7 +21,7 @@ public class GenerateReportAgentTool implements AgentTool {
 
     @Override
     public String description() {
-        return "Generate a markdown procurement recommendation report from the comparison results and anomalies. Returns full markdown and a JSON summary. Call after compare_quotations and detect_anomalies.";
+        return "Generate a markdown procurement recommendation report. Returns markdown, best_supplier, confidence, and anomaly_count as flat fields — pass these directly to submit_report. Call after compare_quotations and detect_anomalies.";
     }
 
     @Override
@@ -44,9 +44,37 @@ public class GenerateReportAgentTool implements AgentTool {
             Map<String, Object> comparison = (Map<String, Object>) args.getOrDefault("comparison", Map.of());
             List<Map<String, Object>> anomalies = (List<Map<String, Object>>) args.getOrDefault("anomalies", List.of());
             Map<String, Object> report = aiReportGenerationService.generateReport(comparison, anomalies);
-            return Map.of("report", report, "status", "ok");
+
+            // Flatten so the agent can pass these directly to submit_report without deep nesting
+            String markdown = (String) report.getOrDefault("markdown", "");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> summary = (Map<String, Object>) report.getOrDefault("summary", Map.of());
+            String bestSupplier = String.valueOf(summary.getOrDefault("bestSupplier", "Unknown"));
+            double confidence = toDouble(summary.getOrDefault("confidence", 0.8));
+            // Normalize: LLM sometimes returns 0-100 instead of 0.0-1.0
+            if (confidence > 1.0) confidence = confidence / 100.0;
+            int anomalyCount = toInt(summary.getOrDefault("anomalyCount", anomalies.size()));
+
+            return Map.of(
+                    "markdown", markdown,
+                    "best_supplier", bestSupplier,
+                    "confidence", confidence,
+                    "anomaly_count", anomalyCount,
+                    "status", "ok"
+            );
         } catch (Exception e) {
-            return Map.of("report", Map.of(), "status", "error", "error", e.getMessage());
+            return Map.of("markdown", "", "best_supplier", "Unknown",
+                    "confidence", 0.0, "anomaly_count", 0, "status", "error", "error", e.getMessage());
         }
+    }
+
+    private double toDouble(Object v) {
+        if (v instanceof Number n) return n.doubleValue();
+        try { return Double.parseDouble(v.toString()); } catch (Exception e) { return 0.8; }
+    }
+
+    private int toInt(Object v) {
+        if (v instanceof Number n) return n.intValue();
+        try { return Integer.parseInt(v.toString()); } catch (Exception e) { return 0; }
     }
 }
