@@ -1,0 +1,10 @@
+{
+  "skillName": "quotation-comparison",
+  "version": "0.1.0",
+  "description": "Compare supplier quotations and generate recommendation reports.",
+  "owner": "ops",
+  "inputSchema": {
+    "type": "object",
+    "required": ["documents"]
+  }
+}

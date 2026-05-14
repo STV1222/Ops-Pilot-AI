@@ -1,0 +1,11 @@
+{
+  "name": "quotation-comparison",
+  "steps": [
+    "extract-document",
+    "parse-quotation",
+    "normalize-data",
+    "compare-quotation",
+    "detect-anomaly",
+    "generate-report"
+  ]
+}
