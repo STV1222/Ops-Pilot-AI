@@ -1,5 +1,7 @@
 package com.opspilot.infrastructure.temporal;
 
+import com.opspilot.application.agent.AgentLoop;
+import com.opspilot.application.agent.AgentResult;
 import com.opspilot.application.skill.*;
 import com.opspilot.domain.workflow.WorkflowStatus;
 import com.opspilot.infrastructure.persistence.DocumentRepository;
@@ -23,18 +25,21 @@ public class QuotationComparisonActivitiesImpl implements QuotationComparisonAct
     private final WorkflowExecutionRepository executionRepository;
     private final SkillRegistry skillRegistry;
     private final SkillExecutor skillExecutor;
+    private final AgentLoop agentLoop;
 
     public QuotationComparisonActivitiesImpl(
             DocumentRepository documentRepository,
             ReportRepository reportRepository,
             WorkflowExecutionRepository executionRepository,
             SkillRegistry skillRegistry,
-            SkillExecutor skillExecutor) {
+            SkillExecutor skillExecutor,
+            AgentLoop agentLoop) {
         this.documentRepository = documentRepository;
         this.reportRepository = reportRepository;
         this.executionRepository = executionRepository;
         this.skillRegistry = skillRegistry;
         this.skillExecutor = skillExecutor;
+        this.agentLoop = agentLoop;
     }
 
     @Override
@@ -76,6 +81,33 @@ public class QuotationComparisonActivitiesImpl implements QuotationComparisonAct
             }
         } catch (Exception e) {
             log.error("Activity failed for workflow {}: {}", id, e.getMessage(), e);
+            executionRepository.updateStatus(id, WorkflowStatus.FAILED, Instant.now());
+            throw e;
+        }
+    }
+
+    @Override
+    public void runAgent(String executionId) {
+        UUID id = UUID.fromString(executionId);
+        log.info("Temporal activity: runAgent for workflow {}", id);
+
+        try {
+            List<String> texts = documentRepository.findExtractedTextByExecutionId(id);
+            String combined = String.join("\n\n", texts);
+
+            AgentResult result = agentLoop.run(combined);
+
+            if (result.success()) {
+                reportRepository.save(id, result.markdown(), result.summary());
+                executionRepository.updateStatus(id, WorkflowStatus.PENDING_APPROVAL, null);
+                log.info("Agent workflow {} moved to PENDING_APPROVAL after {} iterations",
+                        id, result.iterations());
+            } else {
+                executionRepository.updateStatus(id, WorkflowStatus.FAILED, Instant.now());
+                log.error("Agent failed for workflow {}: {}", id, result.failureReason());
+            }
+        } catch (Exception e) {
+            log.error("runAgent activity failed for workflow {}: {}", id, e.getMessage(), e);
             executionRepository.updateStatus(id, WorkflowStatus.FAILED, Instant.now());
             throw e;
         }

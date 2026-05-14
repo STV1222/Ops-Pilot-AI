@@ -14,13 +14,13 @@ public class QuotationComparisonWorkflowImpl implements QuotationComparisonWorkf
     private final QuotationComparisonActivities activities = Workflow.newActivityStub(
             QuotationComparisonActivities.class,
             ActivityOptions.newBuilder()
-                    .setStartToCloseTimeout(Duration.ofMinutes(5))
+                    .setStartToCloseTimeout(Duration.ofMinutes(10))
                     .build());
 
     @Override
     public void run(UUID executionId) {
         log.info("Workflow started for execution {}", executionId);
-        activities.runSkill(executionId.toString());
+        activities.runAgent(executionId.toString());
         log.info("Workflow completed for execution {}", executionId);
     }
 }

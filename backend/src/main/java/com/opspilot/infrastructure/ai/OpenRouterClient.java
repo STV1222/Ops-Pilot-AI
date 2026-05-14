@@ -81,6 +81,49 @@ public class OpenRouterClient {
         }
     }
 
+    /**
+     * Chat completion with tool/function calling. Returns the full choices[0] node
+     * (containing finish_reason and message with optional tool_calls).
+     * Returns null on failure.
+     */
+    public JsonNode completeWithTools(List<Map<String, Object>> messages, List<Map<String, Object>> tools) {
+        if (!props.isConfigured()) {
+            log.warn("OpenRouter not configured — skipping completeWithTools");
+            return null;
+        }
+        Map<String, Object> body = Map.of(
+                "model", props.getModel(),
+                "messages", messages,
+                "tools", tools,
+                "temperature", 0.2
+        );
+        try {
+            return webClient.post()
+                    .uri("/chat/completions")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + props.getApiKey().trim())
+                    .header("HTTP-Referer", props.getHttpReferer())
+                    .header("X-Title", props.getAppName())
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .timeout(Duration.ofSeconds(120))
+                    .map(node -> {
+                        JsonNode choices = node.path("choices");
+                        if (!choices.isArray() || choices.isEmpty()) return null;
+                        return choices.get(0);
+                    })
+                    .onErrorResume(e -> {
+                        log.warn("OpenRouter tool-calling request failed: {}", e.toString());
+                        return Mono.empty();
+                    })
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .block(Duration.ofSeconds(125));
+        } catch (Exception e) {
+            log.warn("OpenRouter completeWithTools error", e);
+            return null;
+        }
+    }
+
     static String stripJsonFence(String text) {
         String t = text.strip();
         if (t.startsWith("```")) {

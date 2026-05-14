@@ -1,7 +1,7 @@
 # OpsPilot AI
 
 > **AI-powered Operations Workflow Platform for SMEs**  
-> Automate procurement workflows with document AI, durable orchestration, and a modular Skill runtime — not a chatbot, not a wrapper. Workflow automation software powered by LLMs.
+> Automate procurement workflows with a ReAct AI Agent, durable orchestration, and a modular Skill runtime — not a chatbot, not a wrapper. Real agentic AI that autonomously decides which tools to call, in what order, and when it is done.
 
 ---
 
@@ -23,9 +23,11 @@
 
 ## Overview
 
-OpsPilot AI is a full-stack workflow automation platform that gives SMEs the ability to install and run reusable AI **Skills** — modular units of business logic powered by LLMs, document processing, and orchestration.
+OpsPilot AI is a full-stack workflow automation platform that gives SMEs the ability to install and run reusable AI **Skills** — modular units of business logic powered by a real AI Agent, document processing, and durable orchestration.
 
 The MVP ships one production-ready skill: **Quotation Comparison** — a fully automated procurement workflow that takes supplier PDFs and Excel files as input and produces an AI-generated recommendation report routed to a manager for approval.
+
+The core execution engine is a **ReAct-pattern AI Agent** (Reason + Act loop). Rather than a hardcoded pipeline, the LLM autonomously decides which tools to call, inspects their results, and loops until analysis is complete. The agent has access to five tools (`extract_items`, `detect_anomalies`, `compare_quotations`, `generate_report`, `submit_report`) and orchestrates them through a multi-turn conversation with the LLM — terminating only when it calls `submit_report` with the finished recommendation.
 
 ---
 
@@ -67,19 +69,23 @@ OpsPilot AI automates steps 2–6 entirely. The user uploads the files. The plat
                              │
                     ┌────────▼────────────────────────────────┐
                     │         Skill Runtime                    │
-                    │  quotation-comparison skill executes:    │
+                    │  quotation-comparison skill invokes:     │
                     │                                          │
-                    │  1. Extract structured line items        │
-                    │     (AI — GPT-4o-mini via OpenRouter)    │
-                    │                                          │
-                    │  2. Detect anomalies                     │
-                    │     (Rule engine — >15% price deviation) │
-                    │                                          │
-                    │  3. Compare suppliers                    │
-                    │     (AI — ranked recommendation)         │
-                    │                                          │
-                    │  4. Generate procurement report          │
-                    │     (AI — markdown with pricing table)   │
+                    │         ┌──────────────────────┐        │
+                    │         │  ReAct AI Agent Loop  │        │
+                    │         │  (up to 12 iterations)│        │
+                    │         │                       │        │
+                    │         │  LLM decides which    │        │
+                    │         │  tools to call and    │        │
+                    │         │  in what order:       │        │
+                    │         │                       │        │
+                    │         │  → extract_items      │        │
+                    │         │  → detect_anomalies   │        │
+                    │         │  → compare_quotations │        │
+                    │         │  → generate_report    │        │
+                    │         │  → submit_report      │        │
+                    │         │    (terminates loop)  │        │
+                    │         └──────────────────────┘        │
                     └────────┬────────────────────────────────┘
                              │
                     ┌────────▼────────┐
@@ -114,6 +120,14 @@ OpsPilot AI automates steps 2–6 entirely. The user uploads the files. The plat
 │   └────────┬────────┘      │  QuotationComparisonExecutor  │  │
 │            │               └──────────────┬───────────────┘  │
 │   ┌────────▼───────────────────────────────▼──────────────┐  │
+│   │                 AI Agent (ReAct Loop)                  │  │
+│   │   AgentLoop  ·  AgentTool interface  ·  AgentResult    │  │
+│   │   ──────────────────────────────────────────────────   │  │
+│   │   LLM conversation history → tool call → result →     │  │
+│   │   append to history → repeat until submit_report       │  │
+│   └────────────────────────┬──────────────────────────────┘  │
+│                            │  tool implementations            │
+│   ┌────────────────────────▼──────────────────────────────┐  │
 │   │                 Application Services                   │  │
 │   │   AIExtractionService  ·  AIComparisonService          │  │
 │   │   AIReportGenerationService  ·  AnomalyDetectorService  │  │
@@ -201,6 +215,43 @@ OpsPilot AI automates steps 2–6 entirely. The user uploads the files. The plat
 
 ## Key Design Concepts
 
+### AI Agent — ReAct Loop
+
+The quotation-comparison workflow is executed by a **ReAct-pattern agent** (Reason + Act), not a hardcoded pipeline. The LLM drives execution by deciding which tools to call based on results it has already seen.
+
+```
+User prompt + document text
+         │
+         ▼
+   ┌──────────────────────────────────────────────────┐
+   │              AgentLoop (max 12 iterations)        │
+   │                                                   │
+   │  1. Send conversation history + tool definitions  │
+   │     to LLM via OpenRouter                         │
+   │                                                   │
+   │  2a. finish_reason = "tool_calls"                 │
+   │      → execute each tool                          │
+   │      → append tool result to history              │
+   │      → if tool == submit_report → DONE            │
+   │      → else → next iteration                      │
+   │                                                   │
+   │  2b. finish_reason = "stop"                       │
+   │      → LLM decided it's finished                  │
+   └──────────────────────────────────────────────────┘
+```
+
+**Five agent-callable tools:**
+
+| Tool | Type | What it does |
+|---|---|---|
+| `extract_items` | AI (LLM) | Parses raw document text into structured line items |
+| `detect_anomalies` | Rule engine | Flags price deviations >15%, missing quantities |
+| `compare_quotations` | AI (LLM) | Ranks suppliers by total cost and value |
+| `generate_report` | AI (LLM) | Produces a markdown procurement recommendation |
+| `submit_report` | Terminal | Submits the finished report — ends the agent loop |
+
+Each tool is a Spring `@Component` implementing the `AgentTool` interface. The LLM sees tool names, descriptions, and JSON Schema parameter specs — it constructs the correct arguments autonomously. The agent's conversation history grows with each tool call and result, giving the LLM full context to make informed decisions across iterations.
+
 ### AI Skill Runtime
 
 The core innovation. Instead of hardcoding automation logic, the platform uses a **modular Skill system** where each skill is a self-contained folder:
@@ -268,6 +319,9 @@ AI workflows are async, failure-prone, and long-running. Temporal provides:
 ├── backend/
 │   └── src/main/java/com/opspilot/
 │       ├── application/
+│       │   ├── agent/               # AgentLoop (ReAct engine), AgentTool interface, AgentResult
+│       │   │   └── tools/           # ExtractItemsAgentTool, DetectAnomaliesAgentTool, CompareQuotationsAgentTool
+│       │   │                        # GenerateReportAgentTool, SubmitReportAgentTool
 │       │   ├── ai/                  # AIExtractionService, AIComparisonService, AIReportGenerationService
 │       │   ├── anomaly/             # AnomalyDetectorService (rule engine)
 │       │   ├── document/            # DocumentExtractor interface
@@ -394,10 +448,12 @@ curl -X POST http://localhost:8080/api/v1/workflows/{id}/approve \
 
 | Area | Signal |
 |---|---|
+| **AI Agent (ReAct)** | `AgentLoop` — LLM-driven tool orchestration, multi-turn conversation history, autonomous termination via `submit_report` |
+| **Agentic tool design** | Five `AgentTool` beans with JSON Schema params — LLM constructs arguments from schema, Spring wires implementations |
 | **Reactive backend** | Spring WebFlux — non-blocking multipart streaming, `publishOn` / `subscribeOn` for JDBC offloading |
 | **Durable orchestration** | Temporal — registered worker, `@ActivityInterface`, `@WorkflowImpl`, task queue polling, execution history |
 | **Modular AI systems** | Skill runtime — filesystem loader, named registry, context-driven executor; skills are config, not code |
-| **LLM integration** | Structured JSON prompting, multi-step AI pipeline, model-agnostic via OpenRouter, graceful fallbacks |
+| **LLM integration** | Structured JSON prompting, function/tool calling, model-agnostic via OpenRouter, graceful fallbacks |
 | **Document AI** | PDF and Excel extraction feeding into structured reasoning and anomaly detection |
 | **Clean architecture** | Strict Domain / Application / Infrastructure / Interface layer separation |
 | **MCP tool pattern** | Named tool registry with Spring auto-wiring — composable, independently testable |

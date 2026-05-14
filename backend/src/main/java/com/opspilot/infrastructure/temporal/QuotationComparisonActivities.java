@@ -7,4 +7,7 @@ import io.temporal.activity.ActivityMethod;
 public interface QuotationComparisonActivities {
     @ActivityMethod
     void runSkill(String executionId);
+
+    @ActivityMethod
+    void runAgent(String executionId);
 }
